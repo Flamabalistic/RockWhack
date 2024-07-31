@@ -125,11 +125,11 @@ void readButtons() {
       Serial.println("select");
       if (wasButtonHeld)  // Only trigger on first press
         return;
-      if (isMotorRunning)
-        stopMotor();
-      else
-        updateMotor();
       isMotorRunning = !isMotorRunning;
+      if (isMotorRunning)
+        updateMotor();
+      else
+        stopMotor();
       break;
     default:
       break;
@@ -185,15 +185,17 @@ inline float hitFreqToStepSpeed(float f) {
 
 void updateMotor(void) {
   saveTimer.RESET;
-  float stepSpeed = hitFreqToStepSpeed(hitFreq_Hz);
-  Serial.print("Updating motor: ");
-  Serial.println(stepSpeed);
-  // stepper.setSpeed(stepSpeed);
+  if (isMotorRunning) {
+    float stepSpeed = hitFreqToStepSpeed(hitFreq_Hz);
+    // Serial.print("Updating motor: ");
+    // Serial.println(stepSpeed);
+    stepper.setSpeed(stepSpeed);
+  }
 }
 
 void stopMotor(void) {
   Serial.println("Stopping motor");
-  // stepper.setSpeed(0);
+  stepper.setSpeed(0);
 }
 
 // Updates measuredPressure_kPa
@@ -225,9 +227,9 @@ void setup() {
   displayInfoScreen();
   Serial.println("Setup Done");
 
-  stepper.setAcceleration(200);
-  stepper.setMaxSpeed(2000);
-  stepper.setSpeed(200);
+  stepper.setAcceleration(1); // Load-bearing setAcceleration - however it doesn't change the accel - likely due to using setSpeed, rather than run
+  stepper.setMaxSpeed(3000);
+  stopMotor();
 }
 
 void loop() {
