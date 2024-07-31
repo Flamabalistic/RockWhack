@@ -5,24 +5,20 @@
 #include <LiquidCrystal.h>
 #include <BlockNot.h>
 #include <EEPROM.h>
+#include <AccelStepper.h>
 
-#define updateDur 200  // in ms
-#define buttons A0
-
+#define buttonPin A0
 
 // EEPROM Addresses
-//#define CAM_ADDRESS 10
+// #define CAM_ADDRESS 10
 #define REL_SPEED_ADDRESS 11
-//#define STEP_DIV_ADDRESS 12
+// #define STEP_DIV_ADDRESS 12
 
 // Stepper Variables
-#define stepPin 3 // ~ 
-#define dirPin 11 
-#define sleepPin 12
+#define stepPin 3
+#define dirPin 2
 
-// Interrupt
-#define intPin 2
-
+AccelStepper stepper(AccelStepper::DRIVER, stepPin, dirPin);
 
 // LCD Definitions
 const int RS = 8;
@@ -31,28 +27,129 @@ const int d4 = 4;
 const int d5 = 5;
 const int d6 = 6;
 const int d7 = 7;
-const int pin_BL = 10; // arduino pin wired to LCD backlight circuit
+const int pin_BL = 10;  // arduino pin wired to LCD backlight circuit
+LiquidCrystal lcd(RS, EN, d4, d5, d6, d7);
 
-LiquidCrystal lcd( RS,  EN,  d4,  d5,  d6,  d7);
-BlockNot updateTimer(updateDur);
+constexpr int updateInterval_ms = 200;
+BlockNot updateTimer(updateInterval_ms);
 
 // Speed control variables
-int pulse;
-int stepDiv = 8;
-int no_cams = 8;
-const float stepAngle = 1.8;
+constexpr int stepDiv = 8;
+constexpr int stepsPerRevolution = 200;  // How many steps in a full revolution of the axel
+constexpr int numCams = 4;               // The number of cams, i.e., the number of times the sample is hit per revolution
+constexpr float hitFreqMin_Hz = 1;
+constexpr float hitFreqMax_Hz = 60;
+constexpr float hitFreqIncrement_Hz = 0.1;  // How much to change hitFreq when pressing buttons
+float hitFreq_Hz = hitFreqMin_Hz;           // How often to hit the sample, measured in Hz
 
 // UI Variables
-float trueSpeed = 1.0;
-int relativeSpeed = 10;
+float measuredPressure = 0;  // The measured pressure acting on the sample.
+                             // When updating this, always round to the nearest 0.1
 
 // Control Flow Variables
-bool motorIsOn = false;
-int state = 0;
+bool isMotorRunning = false;
+
+// SECTION: USER INTERFACE FUNCTIONS
+void readButtons() {
+  int button_val = analogRead(buttonPin);
+  // lcd.setCursor(0, 0);
+  if (button_val < 60)  // Right button
+  {
+    // Serial.println("right");
+    // pass
+  } else if (button_val < 200)  // Up
+  {
+    // Serial.println("up");
+    if (hitFreq_Hz < hitFreqMax_Hz) {
+      hitFreq_Hz += hitFreqIncrement_Hz;
+    }
+    updateMotor();
+    delay(150);
+  } else if (button_val < 400)  // Down
+  {
+    // Serial.println("down");
+    if (hitFreq_Hz > hitFreqMin_Hz) {
+      hitFreq_Hz -= hitFreqIncrement_Hz;
+    }
+    updateMotor();
+    delay(150);
+  } else if (button_val < 600)  // Left
+  {
+    // Serial.println("left");
+    // pass
+  } else if (button_val < 800)  // Select
+  {
+    // Serial.println("select");
+    if (isMotorRunning)
+      stopMotor();
+    else
+      updateMotor();
+    isMotorRunning = !isMotorRunning;
+  }
+}
+
+// Save Data
+void saveData() {
+  EEPROM.update(REL_SPEED_ADDRESS, hitFreq_Hz);
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Data Saved!");
+  delay(1500);
+  lcd.clear();
+  displayInfoScreen();
+}
+
+// Load Data
+void loadData() {
+  hitFreq_Hz = EEPROM.read(REL_SPEED_ADDRESS);
+}
+
+// Menus
+void loadingScreen() {
+  lcd.setCursor(3, 0);
+  lcd.print("Starting");
+  for (int i = 0; i < 3; i++)  // increment the power to 200 gradually
+  {
+    delay(100);
+    lcd.print(".");
+  }
+}
+
+void displayInfoScreen() {
+  // Line 1:
+  lcd.setCursor(0, 0);
+  lcd.print("SPEED: ");
+  lcd.print(hitFreq_Hz);
+  lcd.print("Hz");
+  lcd.setCursor(0, 1);
+  lcd.print("PRESS: ");
+  lcd.print(measuredPressure);
+  lcd.print("kPa");
+}
+
+// SECTION: MOTOR CONTROLS
+
+// Converts a desired "hit frequency" to step speed (in steps per second)
+inline float hitFreqToStepSpeed(float f) {
+  return f * (stepsPerRevolution / numCams);
+}
+
+inline void updateMotor(void) {
+  float stepSpeed = hitFreqToStepSpeed(hitFreq_Hz);
+  // Serial.println(hitFreq_Hz);
+  stepper.setSpeed(stepSpeed);
+}
+
+inline void stopMotor(void) {
+  stepper.setSpeed(0);
+}
 
 void setup() {
   // LCD Setup + Title Screen
-  lcd.begin(16,2);
+  lcd.begin(16, 2);
+
+  // Animated Loading Screen
+  // loadingScreen();
 
   // Enable Serial
   Serial.begin(9600);
@@ -61,150 +158,21 @@ void setup() {
   loadData();
 
   // Setup pins
-  pinMode(stepPin,OUTPUT); 
-  pinMode(dirPin,OUTPUT);
-  pinMode(sleepPin,OUTPUT);
-  pinMode(intPin, INPUT);
+  // pinMode(stepPin, OUTPUT);
+  // pinMode(dirPin, OUTPUT);
 
-  // Interrupt
-  attachInterrupt(digitalPinToInterrupt(intPin), stopMotor, RISING);
-
-   // Animated Loading Screen
-  loadingScreen();
-  
-  delay(500);
+  // Finishing up
+  delay(100);
   lcd.clear();
   displayInfoScreen();
   Serial.println("Setup Done");
 }
 
-
 void loop() {
   // To do always
   readButtons();
-  calculatePulseLength();
-  
-  if (motorIsOn) {
-    runMotor();
-  } else {
-    digitalWrite(sleepPin,LOW);
-  }
 
   if (updateTimer.TRIGGERED) {
     displayInfoScreen();
   }
-}
-
-// SECTION: MOTOR CONTROL
-void calculatePulseLength() {
-  pulse = int((2500 * no_cams) / (relativeSpeed * stepDiv));
-  trueSpeed = float(relativeSpeed)/float(no_cams);
-}
-
-void runMotor() {  
-  if (motorIsOn) {
-    digitalWrite(dirPin,HIGH);
-    digitalWrite(sleepPin,HIGH);
-    for(int x = 0; x < 200*stepDiv; x++) {
-      digitalWrite(stepPin,HIGH); 
-      delayMicroseconds(pulse); 
-      digitalWrite(stepPin,LOW); 
-      delayMicroseconds(pulse); 
-    }
-    
-  } else {
-    digitalWrite(sleepPin,LOW);
-  }
-  
-}
-
-void stopMotor() {
-  static unsigned long prevIntTime = 0;
-  unsigned long intTime = millis();
-  if (abs(intTime - prevIntTime) > 200) {
-    motorIsOn = false;
-  }
-  prevIntTime = intTime;
-}
-
-// SECTION: USER INTERFACE FUNCTIONS
-void readButtons() {
- int x;
- x = analogRead(buttons);
- lcd.setCursor(0,0);
- if (x < 60) { // Right button
-   state = 0; // Power off motor
-   saveData(); // Save data
- }
- else if (x < 200) { // Up
-//   lcd.print ("Up    ");
-   relativeSpeed++;
-   if (relativeSpeed > 49) {
-    relativeSpeed = 50;
-   }
-   delay(200);
- }
- else if (x < 400){ // Down
-//   lcd.print ("Down  ");
-   relativeSpeed--;
-   if (relativeSpeed < 1) {
-    relativeSpeed = 1;
-   }
-   delay(200);
- }
- else if (x < 600){ // Left was pressed
-   lcd.print ("Left  ");
-   lcd.clear(); 
- }
- else if (x < 800){ // Select was pressed
-  motorIsOn = true;
-  delay(500);
-//  Serial.println("State: ");
-//  Serial.println(state);
-//  Serial.println("");
- }
- calculatePulseLength();
-}
-
-// Save Data
-void saveData() {
-  EEPROM.update(REL_SPEED_ADDRESS, relativeSpeed);
-//  EEPROM.update(CAM_ADDRESS, no_cams);
-  lcd.clear();
-  lcd.setCursor(0,0); 
-  lcd.print("Data Saved!");
-  delay(2000);
-  lcd.clear();
-  displayInfoScreen();
-}
-
-// Load Data
-void loadData() {
-//  no_cams = EEPROM.read(CAM_ADDRESS);
-  relativeSpeed = EEPROM.read(REL_SPEED_ADDRESS);
-}
-
-// Menus
-void loadingScreen() {
-  lcd.setCursor(3,0);
-  lcd.print("Starting");  
-  for (int i = 0; i < 3; i++) { // increment the power to 200 gradually
-    delay(100);
-    lcd.print(".");
-  }
-}
-
-void displayInfoScreen() {
-  // Line 1:
-  lcd.setCursor(0,0);
-  lcd.print("TS:");
-  lcd.print(trueSpeed);
-  lcd.print(" RS:");
-  lcd.setCursor(11,0);
-  lcd.print(relativeSpeed);
-  lcd.print("Hz  ");
-
-  // Line 2:
-  lcd.setCursor(0,1);
-  lcd.print(">START/STOP");
 }
