@@ -6,9 +6,6 @@
 #include <BlockNot.h>
 #include <EEPROM.h>
 #include <AccelStepper.h>
-
-constexpr int buttonPin = A0;
-
 // EEPROM Addresses
 constexpr int hitFreqHzAddress = 11;
 
@@ -19,7 +16,7 @@ constexpr int enPin = 11;                  // stepper off = high, stepper on = l
 AccelStepper stepper(1, stepPin, dirPin);  // AccelStepper::DRIVER
 
 // Weight variables
-constexpr int weightPin = -1;
+constexpr int weightPin = A1;
 
 // LCD Definitions
 const int RS = 8;
@@ -54,9 +51,14 @@ constexpr int numTicksPerFastIncrement = 3;  // How many ticks per increment whe
 float hitFreq_Hz = hitFreqMin_Hz;            // How often to hit the sample, measured in Hz
 
 // UI Variables
-float measuredWeight_kg = 0;  // The measured pressure acting on the sample.
-                                 // When updating this, always round to the nearest 0.1
+constexpr int buttonPin = A0;
 
+
+// Weight variables
+constexpr float maxWeight_kg = 10;
+constexpr float minWeight_kg = 0;
+float measuredWeight_kg = minWeight_kg;  // The measured pressure acting on the sample.
+                                         // When updating this, always round to the nearest 0.1
 // Control Flow Variables
 bool isMotorRunning = false;
 
@@ -163,6 +165,7 @@ void loadData() {
 
 // Displays the current speed and weight
 void displayInfoScreen() {
+  updateWeight();
   lcd.setCursor(0, 0);
   lcd.print("SPEED:  ");
   lcd.print(hitFreq_Hz);
@@ -197,9 +200,18 @@ void stopMotor(void) {
   digitalWrite(enPin, HIGH);
 }
 
+// SECTION: WEIGHT
+
+// Converts a given analogRead() into a weight in kg
+// - Coefficients were determined experimentally - https://www.wolframalpha.com/input?i=linear+fit+%5B%2F%2Fmath%3A%2836%2C+2.5%29%2C%2852%2C+5%29%2C%2868%2C+7.5%29%2F%2F%5D
+inline float readingToWeight(int readValue) {
+  return max(minWeight_kg, min(maxWeight_kg, 0.15625 * ((float)readValue) - 3.125));
+}
+
 // Updates measuredPressure_kPa
 void updateWeight(void) {
   int weightReading = analogRead(weightPin);
+  measuredWeight_kg = readingToWeight(weightReading);
 }
 
 void setup() {
