@@ -72,7 +72,7 @@ enum class ButtonPressed {
 // SECTION: USER INTERFACE FUNCTIONS
 void readButtons() {
   static ButtonPressed prevButtonPressed = ButtonPressed::NONE;  // What button was pressed last tick
-  static int buttonHoldDuration = 0;                             // how long a given button is held for in ticks
+  static int buttonHeldTicks = 0;                             // how long a given button is held for in ticks
 
   // Debouncing the button input
   static int prevButtonVal = 0;
@@ -85,24 +85,31 @@ void readButtons() {
     return;
   }
 
-  // Check if we're holding down the button - used to change speed faster
   ButtonPressed buttonPressed =
     buttonVal < 60 ? ButtonPressed::RIGHT : buttonVal < 200 ? ButtonPressed::UP
                                           : buttonVal < 400 ? ButtonPressed::DOWN
                                           : buttonVal < 600 ? ButtonPressed::LEFT
                                           : buttonVal < 800 ? ButtonPressed::SELECT
                                                             : ButtonPressed::NONE;
+  // Check if we're holding down the button - used to change speed faster
   bool wasButtonHeld = prevButtonPressed == buttonPressed;
   prevButtonPressed = buttonPressed;
-  if (wasButtonHeld)
-    buttonHoldDuration++;
-  else
-    buttonHoldDuration = 0;
 
+  // Increment hold duration
+  if (wasButtonHeld)
+    buttonHeldTicks++;
+  else
+    buttonHeldTicks = 0;
+
+  // Set increment based on the current ticks
+  // - first press should be small
+  // - holding it should repeatedly be large. If we increment every tick it goes way too fast, therefore we do every 3-5 ticks
   float actualIncrement = 0;
-  if (buttonHoldDuration == 0)
+  if (buttonHeldTicks == 0)
     actualIncrement = hitFreqIncrement_Hz;
-  else if (buttonHoldDuration >= numDeadZoneTicks && buttonHoldDuration % numTicksPerFastIncrement == 0)
+  else if (buttonHeldTicks == numDeadZoneTicks) // avoids the x.10 problem (i.e., holding a button will always trigger the button press action first)
+    actualIncrement = hitFreqFastIncrement_Hz - hitFreqIncrement_Hz;
+  else if (buttonHeldTicks >= numDeadZoneTicks && (buttonHeldTicks-numDeadZoneTicks) % numTicksPerFastIncrement == 0)
     actualIncrement = hitFreqFastIncrement_Hz;
 
   switch (buttonPressed) {
@@ -151,7 +158,7 @@ void saveData() {
 
 // Load Data
 void loadData() {
-  hitFreq_Hz = EEPROM.read(hitFreqHzAddress);
+  hitFreq_Hz = min(hitFreqMax_Hz, max(hitFreqMin_Hz, EEPROM.read(hitFreqHzAddress))); // clamp to avoid errors if the flash dies
 }
 
 // Menus
