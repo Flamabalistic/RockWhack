@@ -7,18 +7,18 @@
 #include <EEPROM.h>
 #include <AccelStepper.h>
 
-#define buttonPin A0
+constexpr int buttonPin = A0;
 
 // EEPROM Addresses
-// #define CAM_ADDRESS 10
-#define REL_SPEED_ADDRESS 11
-// #define STEP_DIV_ADDRESS 12
+constexpr int hitFreqHzAddress = 11;
 
 // Stepper Variables
-#define stepPin 3
-#define dirPin 2
+constexpr int dirPin = 2;
+constexpr int stepPin = 3;
+AccelStepper stepper(1, stepPin, dirPin); // AccelStepper::DRIVER
 
-AccelStepper stepper(AccelStepper::DRIVER, stepPin, dirPin);
+// Weight variables
+constexpr int weightPin = -1;
 
 // LCD Definitions
 const int RS = 8;
@@ -36,6 +36,10 @@ BlockNot updateTimer(updateInterval_ms);
 constexpr int buttonInterval_ms = 50;
 BlockNot buttonTimer(buttonInterval_ms);
 
+constexpr int saveDelay_ms = 5000;
+BlockNot saveTimer(saveDelay_ms);  // We want to save after changing target freq, but we want to wait a bit
+                                   // and ensure the user doesn't change the freq again, making us save again.
+
 // Speed control variables
 constexpr int stepDiv = 8;
 constexpr int stepsPerRevolution = 200;  // How many steps in a full revolution of the axel
@@ -49,8 +53,8 @@ constexpr int numTicksPerFastIncrement = 3;  // How many ticks per increment whe
 float hitFreq_Hz = hitFreqMin_Hz;            // How often to hit the sample, measured in Hz
 
 // UI Variables
-float measuredPressure = 0;  // The measured pressure acting on the sample.
-                             // When updating this, always round to the nearest 0.1
+float measuredPressure_kPa = 0;  // The measured pressure acting on the sample.
+                                 // When updating this, always round to the nearest 0.1
 
 // Control Flow Variables
 bool isMotorRunning = false;
@@ -75,7 +79,7 @@ void readButtons() {
   int buttonDiff = buttonVal - prevButtonVal;
   prevButtonVal = buttonVal;
   if (buttonDiff < -50 || buttonDiff > 50) {
-    Serial.println("Bounce detected, returning...");
+    // Serial.println("Bounce detected, returning...");
     prevButtonPressed = ButtonPressed::NONE;
     return;
   }
@@ -134,18 +138,19 @@ void readButtons() {
 
 // Save Data
 void saveData() {
-  EEPROM.update(REL_SPEED_ADDRESS, hitFreq_Hz);
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("Data Saved!");
-  delay(1500);
-  lcd.clear();
-  displayInfoScreen();
+  Serial.println("Saving data");
+  // EEPROM.update(hitFreqHzAddress, hitFreq_Hz);
+  // lcd.clear();
+  // lcd.setCursor(0, 0);
+  // lcd.print("Data Saved!");
+  // delay(1500);
+  // lcd.clear();
+  // displayInfoScreen();
 }
 
 // Load Data
 void loadData() {
-  hitFreq_Hz = EEPROM.read(REL_SPEED_ADDRESS);
+  hitFreq_Hz = EEPROM.read(hitFreqHzAddress);
 }
 
 // Menus
@@ -159,15 +164,15 @@ void loadingScreen() {
   }
 }
 
+// Displays the current speed and pressure
 void displayInfoScreen() {
-  // Line 1:
   lcd.setCursor(0, 0);
   lcd.print("SPEED: ");
   lcd.print(hitFreq_Hz);
   lcd.print("Hz ");  // Extra space to clear out leftover 'z'
   lcd.setCursor(0, 1);
   lcd.print("PRESS: ");
-  lcd.print(measuredPressure);
+  lcd.print(measuredPressure_kPa);
   lcd.print("kPa  ");  // Extra space's to clear left over 'a's
 }
 
@@ -178,21 +183,28 @@ inline float hitFreqToStepSpeed(float f) {
   return f * (stepsPerRevolution / numCams);
 }
 
-inline void updateMotor(void) {
+void updateMotor(void) {
+  saveTimer.RESET;
   float stepSpeed = hitFreqToStepSpeed(hitFreq_Hz);
   Serial.print("Updating motor: ");
   Serial.println(stepSpeed);
-  stepper.setSpeed(stepSpeed);
+  // stepper.setSpeed(stepSpeed);
 }
 
-inline void stopMotor(void) {
+void stopMotor(void) {
   Serial.println("Stopping motor");
-  stepper.setSpeed(0);
+  // stepper.setSpeed(0);
+}
+
+// Updates measuredPressure_kPa
+void updateWeight(void) {
+  int weightReading = analogRead(weightPin);
 }
 
 void setup() {
   // LCD Setup + Title Screen
   lcd.begin(16, 2);
+  saveTimer.setFirstTriggerResponse(true);
 
   // Animated Loading Screen
   // loadingScreen();
@@ -204,14 +216,18 @@ void setup() {
   loadData();
 
   // Setup pins
-  // pinMode(stepPin, OUTPUT);
-  // pinMode(dirPin, OUTPUT);
+  pinMode(stepPin, OUTPUT);
+  pinMode(dirPin, OUTPUT);
 
   // Finishing up
   delay(100);
   lcd.clear();
   displayInfoScreen();
   Serial.println("Setup Done");
+
+  stepper.setAcceleration(200);
+  stepper.setMaxSpeed(2000);
+  stepper.setSpeed(200);
 }
 
 void loop() {
@@ -222,4 +238,7 @@ void loop() {
   if (buttonTimer.TRIGGERED) {
     readButtons();
   }
+  // if (saveTimer.FIRST_TRIGGER) {
+  //   saveData();
+  // }
 }
