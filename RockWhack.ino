@@ -15,7 +15,8 @@ constexpr int hitFreqHzAddress = 11;
 // Stepper Variables
 constexpr int dirPin = 2;
 constexpr int stepPin = 3;
-AccelStepper stepper(1, stepPin, dirPin); // AccelStepper::DRIVER
+constexpr int enPin = 11;                  // stepper off = high, stepper on = low
+AccelStepper stepper(1, stepPin, dirPin);  // AccelStepper::DRIVER
 
 // Weight variables
 constexpr int weightPin = -1;
@@ -190,12 +191,14 @@ void updateMotor(void) {
     // Serial.print("Updating motor: ");
     // Serial.println(stepSpeed);
     stepper.setSpeed(stepSpeed);
+    digitalWrite(enPin, LOW);
   }
 }
 
 void stopMotor(void) {
   Serial.println("Stopping motor");
   stepper.setSpeed(0);
+  digitalWrite(enPin, HIGH);
 }
 
 // Updates measuredPressure_kPa
@@ -220,6 +223,7 @@ void setup() {
   // Setup pins
   pinMode(stepPin, OUTPUT);
   pinMode(dirPin, OUTPUT);
+  pinMode(enPin, OUTPUT);
 
   // Finishing up
   delay(100);
@@ -227,7 +231,7 @@ void setup() {
   displayInfoScreen();
   Serial.println("Setup Done");
 
-  stepper.setAcceleration(1); // Load-bearing setAcceleration - however it doesn't change the accel - likely due to using setSpeed, rather than run
+  stepper.setAcceleration(1);  // Load-bearing setAcceleration - however it doesn't change the accel - likely due to using setSpeed, rather than run
   stepper.setMaxSpeed(3000);
   stopMotor();
 }
@@ -240,7 +244,7 @@ void loop() {
   if (buttonTimer.TRIGGERED) {
     readButtons();
   }
-  // if (saveTimer.FIRST_TRIGGER) {
-  //   saveData();
-  // }
+  if (saveTimer.FIRST_TRIGGER) {
+    saveData();
+  }
 }
