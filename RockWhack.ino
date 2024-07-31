@@ -54,7 +54,7 @@ constexpr int numTicksPerFastIncrement = 3;  // How many ticks per increment whe
 float hitFreq_Hz = hitFreqMin_Hz;            // How often to hit the sample, measured in Hz
 
 // UI Variables
-float measuredPressure_kPa = 0;  // The measured pressure acting on the sample.
+float measuredWeight_kg = 0;  // The measured pressure acting on the sample.
                                  // When updating this, always round to the nearest 0.1
 
 // Control Flow Variables
@@ -72,7 +72,7 @@ enum class ButtonPressed {
 // SECTION: USER INTERFACE FUNCTIONS
 void readButtons() {
   static ButtonPressed prevButtonPressed = ButtonPressed::NONE;  // What button was pressed last tick
-  static int buttonHeldTicks = 0;                             // how long a given button is held for in ticks
+  static int buttonHeldTicks = 0;                                // how long a given button is held for in ticks
 
   // Debouncing the button input
   static int prevButtonVal = 0;
@@ -107,9 +107,9 @@ void readButtons() {
   float actualIncrement = 0;
   if (buttonHeldTicks == 0)
     actualIncrement = hitFreqIncrement_Hz;
-  else if (buttonHeldTicks == numDeadZoneTicks) // avoids the x.10 problem (i.e., holding a button will always trigger the button press action first)
+  else if (buttonHeldTicks == numDeadZoneTicks)  // avoids the x.10 problem (i.e., holding a button will always trigger the button press action first)
     actualIncrement = hitFreqFastIncrement_Hz - hitFreqIncrement_Hz;
-  else if (buttonHeldTicks >= numDeadZoneTicks && (buttonHeldTicks-numDeadZoneTicks) % numTicksPerFastIncrement == 0)
+  else if (buttonHeldTicks >= numDeadZoneTicks && (buttonHeldTicks - numDeadZoneTicks) % numTicksPerFastIncrement == 0)
     actualIncrement = hitFreqFastIncrement_Hz;
 
   switch (buttonPressed) {
@@ -130,9 +130,9 @@ void readButtons() {
       // Serial.println("right");
       break;
     case ButtonPressed::SELECT:
-      Serial.println("select");
+      // Serial.println("select");
       if (wasButtonHeld)  // Only trigger on first press
-        return;
+        break;
       isMotorRunning = !isMotorRunning;
       if (isMotorRunning)
         updateMotor();
@@ -147,7 +147,7 @@ void readButtons() {
 // Save Data
 void saveData() {
   Serial.println("Saving data");
-  // EEPROM.update(hitFreqHzAddress, hitFreq_Hz);
+  EEPROM.update(hitFreqHzAddress, hitFreq_Hz);
   // lcd.clear();
   // lcd.setCursor(0, 0);
   // lcd.print("Data Saved!");
@@ -158,45 +158,34 @@ void saveData() {
 
 // Load Data
 void loadData() {
-  hitFreq_Hz = min(hitFreqMax_Hz, max(hitFreqMin_Hz, EEPROM.read(hitFreqHzAddress))); // clamp to avoid errors if the flash dies
+  hitFreq_Hz = min(hitFreqMax_Hz, max(hitFreqMin_Hz, EEPROM.read(hitFreqHzAddress)));  // clamp to avoid errors if the flash dies
 }
 
-// Menus
-void loadingScreen() {
-  lcd.setCursor(3, 0);
-  lcd.print("Starting");
-  for (int i = 0; i < 3; i++)  // increment the power to 200 gradually
-  {
-    delay(100);
-    lcd.print(".");
-  }
-}
-
-// Displays the current speed and pressure
+// Displays the current speed and weight
 void displayInfoScreen() {
   lcd.setCursor(0, 0);
-  lcd.print("SPEED: ");
+  lcd.print("SPEED:  ");
   lcd.print(hitFreq_Hz);
-  lcd.print("Hz ");  // Extra space to clear out leftover 'z'
+  lcd.print("Hz ");  // Extra space to clear out leftover letters after changing # of displayed digits
   lcd.setCursor(0, 1);
-  lcd.print("PRESS: ");
-  lcd.print(measuredPressure_kPa);
-  lcd.print("kPa  ");  // Extra space's to clear left over 'a's
+  lcd.print("WEIGHT: ");
+  lcd.print(measuredWeight_kg);
+  lcd.print("kg  ");  // Extra space to clear out leftover letters after changing # of displayed digits
 }
 
 // SECTION: MOTOR CONTROLS
 
 // Converts a desired "hit frequency" to step speed (in steps per second)
 inline float hitFreqToStepSpeed(float f) {
-  return f * (stepsPerRevolution / numCams);
+  return f * (float)(stepsPerRevolution * stepDiv) / (float)numCams;
 }
 
 void updateMotor(void) {
   saveTimer.RESET;
   if (isMotorRunning) {
     float stepSpeed = hitFreqToStepSpeed(hitFreq_Hz);
-    // Serial.print("Updating motor: ");
-    // Serial.println(stepSpeed);
+    Serial.print("Updating motor: ");
+    Serial.println(stepSpeed);
     stepper.setSpeed(stepSpeed);
     digitalWrite(enPin, LOW);
   }
@@ -216,7 +205,7 @@ void updateWeight(void) {
 void setup() {
   // LCD Setup + Title Screen
   lcd.begin(16, 2);
-  saveTimer.setFirstTriggerResponse(true);
+  saveTimer.setFirstTriggerResponse(false);
 
   // Animated Loading Screen
   // loadingScreen();
@@ -239,7 +228,7 @@ void setup() {
   Serial.println("Setup Done");
 
   stepper.setAcceleration(1);  // Load-bearing setAcceleration - however it doesn't change the accel - likely due to using setSpeed, rather than run
-  stepper.setMaxSpeed(3000);
+  stepper.setMaxSpeed(hitFreqToStepSpeed(hitFreqMax_Hz));
   stopMotor();
 }
 
