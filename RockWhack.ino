@@ -33,14 +33,20 @@ LiquidCrystal lcd(RS, EN, d4, d5, d6, d7);
 constexpr int updateInterval_ms = 200;
 BlockNot updateTimer(updateInterval_ms);
 
+constexpr int buttonInterval_ms = 50;
+BlockNot buttonTimer(buttonInterval_ms);
+
 // Speed control variables
 constexpr int stepDiv = 8;
 constexpr int stepsPerRevolution = 200;  // How many steps in a full revolution of the axel
 constexpr int numCams = 4;               // The number of cams, i.e., the number of times the sample is hit per revolution
 constexpr float hitFreqMin_Hz = 1;
 constexpr float hitFreqMax_Hz = 60;
-constexpr float hitFreqIncrement_Hz = 0.1;  // How much to change hitFreq when pressing buttons
-float hitFreq_Hz = hitFreqMin_Hz;           // How often to hit the sample, measured in Hz
+constexpr float hitFreqIncrement_Hz = 0.1;    // How much to change hitFreq when pressing a button
+constexpr float hitFreqFastIncrement_Hz = 1;  // How much to change hitFreq when holding a button
+constexpr int numDeadZoneTicks = 15;
+constexpr int numTicksPerFastIncrement = 3;  // How many ticks per increment when quickly increasing
+float hitFreq_Hz = hitFreqMin_Hz;            // How often to hit the sample, measured in Hz
 
 // UI Variables
 float measuredPressure = 0;  // The measured pressure acting on the sample.
@@ -49,42 +55,80 @@ float measuredPressure = 0;  // The measured pressure acting on the sample.
 // Control Flow Variables
 bool isMotorRunning = false;
 
+enum class ButtonPressed {
+  NONE,
+  RIGHT,
+  UP,
+  DOWN,
+  LEFT,
+  SELECT,
+};
+
 // SECTION: USER INTERFACE FUNCTIONS
 void readButtons() {
-  int button_val = analogRead(buttonPin);
-  // lcd.setCursor(0, 0);
-  if (button_val < 60)  // Right button
-  {
-    // Serial.println("right");
-    // pass
-  } else if (button_val < 200)  // Up
-  {
-    // Serial.println("up");
-    if (hitFreq_Hz < hitFreqMax_Hz) {
-      hitFreq_Hz += hitFreqIncrement_Hz;
-    }
-    updateMotor();
-    delay(150);
-  } else if (button_val < 400)  // Down
-  {
-    // Serial.println("down");
-    if (hitFreq_Hz > hitFreqMin_Hz) {
-      hitFreq_Hz -= hitFreqIncrement_Hz;
-    }
-    updateMotor();
-    delay(150);
-  } else if (button_val < 600)  // Left
-  {
-    // Serial.println("left");
-    // pass
-  } else if (button_val < 800)  // Select
-  {
-    // Serial.println("select");
-    if (isMotorRunning)
-      stopMotor();
-    else
+  static ButtonPressed prevButtonPressed = ButtonPressed::NONE;  // What button was pressed last tick
+  static int buttonHoldDuration = 0;                             // how long a given button is held for in ticks
+
+  // Debouncing the button input
+  static int prevButtonVal = 0;
+  int buttonVal = analogRead(buttonPin);
+  int buttonDiff = buttonVal - prevButtonVal;
+  prevButtonVal = buttonVal;
+  if (buttonDiff < -50 || buttonDiff > 50) {
+    Serial.println("Bounce detected, returning...");
+    prevButtonPressed = ButtonPressed::NONE;
+    return;
+  }
+
+  // Check if we're holding down the button - used to change speed faster
+  ButtonPressed buttonPressed =
+    buttonVal < 60 ? ButtonPressed::RIGHT : buttonVal < 200 ? ButtonPressed::UP
+                                          : buttonVal < 400 ? ButtonPressed::DOWN
+                                          : buttonVal < 600 ? ButtonPressed::LEFT
+                                          : buttonVal < 800 ? ButtonPressed::SELECT
+                                                            : ButtonPressed::NONE;
+  bool wasButtonHeld = prevButtonPressed == buttonPressed;
+  prevButtonPressed = buttonPressed;
+  if (wasButtonHeld)
+    buttonHoldDuration++;
+  else
+    buttonHoldDuration = 0;
+
+  float actualIncrement = 0;
+  if (buttonHoldDuration == 0)
+    actualIncrement = hitFreqIncrement_Hz;
+  else if (buttonHoldDuration >= numDeadZoneTicks && buttonHoldDuration % numTicksPerFastIncrement == 0)
+    actualIncrement = hitFreqFastIncrement_Hz;
+
+  switch (buttonPressed) {
+    case ButtonPressed::UP:
+      // Serial.println("up");
+      hitFreq_Hz = min(hitFreq_Hz + actualIncrement, hitFreqMax_Hz);
       updateMotor();
-    isMotorRunning = !isMotorRunning;
+      break;
+    case ButtonPressed::DOWN:
+      // Serial.println("down");
+      hitFreq_Hz = max(hitFreq_Hz - actualIncrement, hitFreqMin_Hz);
+      updateMotor();
+      break;
+    case ButtonPressed::LEFT:
+      // Serial.println("left");
+      break;
+    case ButtonPressed::RIGHT:
+      // Serial.println("right");
+      break;
+    case ButtonPressed::SELECT:
+      Serial.println("select");
+      if (wasButtonHeld)  // Only trigger on first press
+        return;
+      if (isMotorRunning)
+        stopMotor();
+      else
+        updateMotor();
+      isMotorRunning = !isMotorRunning;
+      break;
+    default:
+      break;
   }
 }
 
@@ -120,11 +164,11 @@ void displayInfoScreen() {
   lcd.setCursor(0, 0);
   lcd.print("SPEED: ");
   lcd.print(hitFreq_Hz);
-  lcd.print("Hz");
+  lcd.print("Hz ");  // Extra space to clear out leftover 'z'
   lcd.setCursor(0, 1);
   lcd.print("PRESS: ");
   lcd.print(measuredPressure);
-  lcd.print("kPa");
+  lcd.print("kPa  ");  // Extra space's to clear left over 'a's
 }
 
 // SECTION: MOTOR CONTROLS
@@ -136,11 +180,13 @@ inline float hitFreqToStepSpeed(float f) {
 
 inline void updateMotor(void) {
   float stepSpeed = hitFreqToStepSpeed(hitFreq_Hz);
-  // Serial.println(hitFreq_Hz);
+  Serial.print("Updating motor: ");
+  Serial.println(stepSpeed);
   stepper.setSpeed(stepSpeed);
 }
 
 inline void stopMotor(void) {
+  Serial.println("Stopping motor");
   stepper.setSpeed(0);
 }
 
@@ -169,10 +215,11 @@ void setup() {
 }
 
 void loop() {
-  // To do always
-  readButtons();
-
+  stepper.runSpeed();
   if (updateTimer.TRIGGERED) {
     displayInfoScreen();
+  }
+  if (buttonTimer.TRIGGERED) {
+    readButtons();
   }
 }
