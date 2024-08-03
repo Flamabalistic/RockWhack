@@ -6,6 +6,10 @@
 #include <BlockNot.h>
 #include <EEPROM.h>
 #include <AccelStepper.h>
+
+#include <avr/io.h>
+#include <avr/interrupt.h>
+
 // EEPROM Addresses
 constexpr int hitFreqHzAddress = 11;
 
@@ -15,8 +19,24 @@ constexpr int stepPin = 3;
 constexpr int enPin = 11;                 // stepper off = high, stepper on = low
 AccelStepper stepper(1, stepPin, dirPin); // AccelStepper::DRIVER
 
-// Weight variables
+// Weight definitions
 constexpr int weightPin = A1;
+
+// Sampling system:
+//  We want to know the maximum weight sensor value over the last ~1 second.
+//  We *could* save all measurements from the last second and get the maximum, but that's a lot of data.
+//  Instead, we will subsample the data X times, only keeping the max each time.
+//  Once we've subsampled X times, we write this value to memory as a 'sample', and move to the next sample.
+constexpr int numSubSamples = 32;
+constexpr int numSamples = 32;
+
+int samples[numSamples] = {0}; // A list of the maximum values in each sample from the last `numSamples` samples
+int maxSubSample = 0;          // The maximum sub-sample in the current sample
+int subSampleIdx = 0;
+int sampleIdx = 0;
+
+constexpr int timerInterval_Hz = 1000;                                 // How often to sample the weight sensor
+constexpr int timerOCR = (16 * 1000000) / (timerInterval_Hz * 64) - 1; //  (must be <256)
 
 // LCD Definitions
 const int RS = 8;
@@ -233,12 +253,64 @@ inline float readingToWeight(int readValue)
 // Updates measuredPressure_kPa
 void updateWeight(void)
 {
-  int weightReading = analogRead(weightPin);
+  int weightReading = 0;
+  for (int i = 0; i < numSamples; i++)
+  {
+    weightReading = max(weightReading, samples[i]);
+  }
 #ifdef DISPLAY_WEIGHT_READING
   analogReadWeight = weightReading;
 #else
   measuredWeight_kg = readingToWeight(weightReading);
 #endif
+}
+
+// Reads the weight sensor and updates maxSubSample, and if necessary, sampleIdx & samples
+void readWeightSensor(void)
+{
+  // Update the max sub-sample
+  int weightReading = analogRead(weightPin);
+  if (weightReading > maxSubSample)
+  {
+    maxSubSample = weightReading;
+  }
+
+  // If we've finished a sub-sample, update the sample with the max value
+  if (++subSampleIdx == numSubSamples)
+  {
+    subSampleIdx = 0;
+    samples[sampleIdx++] = maxSubSample;
+    maxSubSample = 0;
+    if (sampleIdx == numSamples)
+    {
+      sampleIdx = 0;
+    }
+  }
+}
+
+void initWeightSensorTimer(void)
+{
+  cli(); // stop interrupts
+
+  // set timer1 interrupt at 1kHz
+  TCCR1A = 0; // set entire TCCR1A register to 0
+  TCCR1B = 0; // same for TCCR1B
+  TCNT1 = 0;  // initialize counter value to 0
+  // set compare match register for 1kHz increments
+  OCR1A = 15999; // (16 * 10^6) / (1000 * 64) - 1 (must be <65536)
+  // turn on CTC mode
+  TCCR1B |= (1 << WGM12);
+  // Set CS11 and CS10 bits for 64 prescaler
+  TCCR1B |= (1 << CS11) | (1 << CS10);
+  // enable timer compare interrupt
+  TIMSK1 |= (1 << OCIE1A);
+
+  sei(); // allow interrupts
+}
+
+ISR(TIMER0_COMPA_vect)
+{
+  readWeightSensor();
 }
 
 void setup()
@@ -260,6 +332,9 @@ void setup()
   pinMode(stepPin, OUTPUT);
   pinMode(dirPin, OUTPUT);
   pinMode(enPin, OUTPUT);
+
+  Serial.println("Setup weight sensor");
+  // initWeightSensorTimer(); // - CAUSES BUTTONS TO NOT RESPOND
 
   // Finishing up
   delay(100);
