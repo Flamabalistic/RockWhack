@@ -5,15 +5,17 @@
             "includePath": [
                 "${workspaceFolder}/**",
                 "C:/Users/Xavier/Documents/Arduino/**",
+                "C:/Users/Xavier/AppData/Local/Arduino15/**"
             ],
             "defines": [
                 "ARDUINO=10805",
-                "ARDUINO_ARCH_AVR"
+                "ARDUINO_ARCH_AVR",
+                "USBCON"
             ],
             "compilerPath": "C:/Program Files (x86)/Arduino/hardware/tools/avr/bin/avr-gcc.exe",
             "cStandard": "c11",
             "cppStandard": "c++17",
-            "intelliSenseMode": "gcc-x64"
+            "intelliSenseMode": "gcc-x64",
         }
     ],
     "version": 4
