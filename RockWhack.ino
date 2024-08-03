@@ -55,10 +55,15 @@ constexpr int buttonPin = A0;
 
 
 // Weight variables
+#define DISPLAY_WEIGHT_READING  // When defined, displays the analogRead value on the display instead of the converted weight
 constexpr float maxWeight_kg = 10;
 constexpr float minWeight_kg = 0;
+#ifdef DISPLAY_WEIGHT_READING
+int analogReadWeight = 0;
+#else
 float measuredWeight_kg = minWeight_kg;  // The measured pressure acting on the sample.
                                          // When updating this, always round to the nearest 0.1
+#endif
 // Control Flow Variables
 bool isMotorRunning = false;
 
@@ -171,9 +176,15 @@ void displayInfoScreen() {
   lcd.print(hitFreq_Hz);
   lcd.print("Hz ");  // Extra space to clear out leftover letters after changing # of displayed digits
   lcd.setCursor(0, 1);
+#ifdef DISPLAY_WEIGHT_READING
+  lcd.print("READ: ");
+  lcd.print(analogReadWeight);
+  lcd.print("  ");  // Extra space to clear out leftover letters after changing # of displayed digits
+#else
   lcd.print("WEIGHT: ");
   lcd.print(measuredWeight_kg);
   lcd.print("kg  ");  // Extra space to clear out leftover letters after changing # of displayed digits
+#endif
 }
 
 // SECTION: MOTOR CONTROLS
@@ -211,7 +222,11 @@ inline float readingToWeight(int readValue) {
 // Updates measuredPressure_kPa
 void updateWeight(void) {
   int weightReading = analogRead(weightPin);
+#ifdef DISPLAY_WEIGHT_READING
+  analogReadWeight = weightReading;
+#else
   measuredWeight_kg = readingToWeight(weightReading);
+#endif
 }
 
 void setup() {
