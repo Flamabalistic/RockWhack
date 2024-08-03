@@ -1,0 +1,20 @@
+{
+    "configurations": [
+        {
+            "name": "Arduino",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "C:/Users/Xavier/Documents/Arduino/**",
+            ],
+            "defines": [
+                "ARDUINO=10805",
+                "ARDUINO_ARCH_AVR"
+            ],
+            "compilerPath": "C:/Program Files (x86)/Arduino/hardware/tools/avr/bin/avr-gcc.exe",
+            "cStandard": "c11",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "gcc-x64"
+        }
+    ],
+    "version": 4
+}
