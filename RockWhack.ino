@@ -218,7 +218,7 @@ void displayInfoScreen()
 // Converts a desired "hit frequency" to step speed (in steps per second)
 inline float hitFreqToStepSpeed(float f)
 {
-  return f * (float)(stepsPerRevolution * stepDiv) / (float)numCams;
+  return f * (float)(stepsPerRevolution * stepDiv);
 }
 
 void updateMotor(void)
